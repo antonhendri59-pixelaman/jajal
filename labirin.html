@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Labirin Quest TKJ</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(circle at center, #1a1a2e, #0f0f1e);
+    color: #fff;
+    font-family: 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  h1 {
+    color: #00d9ff;
+    text-shadow: 0 0 10px #00d9ff;
+    margin-bottom: 10px;
+    letter-spacing: 2px;
+  }
+  #hud {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 8px;
+    font-size: 16px;
+  }
+  .hud-box {
+    background: rgba(0,0,0,0.5);
+    padding: 6px 14px;
+    border: 1px solid #00d9ff;
+    border-radius: 6px;
+  }
+  #question-box {
+    background: rgba(0,0,0,0.7);
+    border: 2px solid #ffcc00;
+    border-radius: 8px;
+    padding: 10px 20px;
+    margin-bottom: 8px;
+    max-width: 800px;
+    text-align: center;
+    font-size: 17px;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    border: 3px solid #00d9ff;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(0,217,255,0.4);
+    background: #0a0a15;
+  }
+  #controls {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #aaa;
+  }
+  #overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  #overlay h2 {
+    color: #00d9ff;
+    font-size: 40px;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px #00d9ff;
+  }
+  #overlay p {
+    margin-bottom: 20px;
+    font-size: 18px;
+    max-width: 500px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  button {
+    background: linear-gradient(135deg, #00d9ff, #0077ff);
+    color: #fff;
+    border: none;
+    padding: 12px 30px;
+    font-size: 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s;
+  }
+  button:hover { transform: scale(1.05); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <h2>🎮 LABIRIN QUEST TKJ</h2>
+  <p>Selamat datang, pejuang TKJ! Jawab pertanyaan tentang dasar-dasar Teknik Komputer dan Jaringan dengan cara bergerak menuju area jawaban yang benar. Hati-hati dengan monster yang berkeliaran!</p>
+  <p><b>Kontrol:</b> Arrow Keys / WASD untuk bergerak</p>
+  <p><b>Aturan:</b>
+    <br>✅ Jawaban benar = area aman + kembang api 🎆
+    <br>❌ Jawaban salah = bom 💥 + area terkunci
+    <br>💀 Kena monster = kehilangan nyawa
+  </p>
+  <button onclick="startGame()">MULAI PETUALANGAN</button>
+</div>
+
+<h1>🌀 LABIRIN QUEST TKJ</h1>
+<div id="hud">
+  <div class="hud-box">Soal: <span id="qnum">1</span>/10</div>
+  <div class="hud-box">Nyawa: <span id="lives">❤️❤️❤️</span></div>
+  <div class="hud-box">Skor: <span id="score">0</span></div>
+</div>
+<div id="question-box">Memuat soal...</div>
+<canvas id="game" width="800" height="600"></canvas>
+<div id="controls">Arrow Keys / WASD untuk bergerak | P untuk pause | M untuk mute musik</div>
+
+<script>
+// ============ AUDIO (Web Audio API) ============
+let audioCtx = null;
+let musicGain = null;
+let musicPlaying = false;
+let musicMuted = false;
+let musicNodes = [];
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 0.08;
+  musicGain.connect(audioCtx.destination);
+}
+
+function playNote(freq, duration, type='sine', gainVal=0.1, startTime=0) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, audioCtx.currentTime + startTime);
+  gain.gain.linearRampToValueAtTime(gainVal, audioCtx.currentTime + startTime + 0.02);
+  gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + startTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(audioCtx.currentTime + startTime);
+  osc.stop(audioCtx.currentTime + startTime + duration);
+}
+
+function sfxCorrect() {
+  playNote(523.25, 0.15, 'sine', 0.2, 0);
+  playNote(659.25, 0.15, 'sine', 0.2, 0.1);
+  playNote(783.99, 0.3, 'sine', 0.2, 0.2);
+}
+function sfxWrong() {
+  playNote(200, 0.2, 'sawtooth', 0.15, 0);
+  playNote(150, 0.3, 'sawtooth', 0.15, 0.15);
+}
+function sfxHit() {
+  playNote(100, 0.3, 'square', 0.2, 0);
+}
+function sfxWin() {
+  [523, 659, 784, 1047].forEach((f,i)=>playNote(f, 0.3, 'sine', 0.2, i*0.15));
+}
+
+function startMusic() {
+  if (musicPlaying || !audioCtx) return;
+  musicPlaying = true;
+  // Melodi instrumen sederhana (loop)
+  const melody = [
+    [392, 0.3], [440, 0.3], [523, 0.3], [440, 0.3],
+    [392, 0.3], [349, 0.3], [330, 0.6],
+    [392, 0.3], [440, 0.3], [523, 0.3], [587, 0.3],
+    [523, 0.3], [440, 0.3], [392, 0.6]
+  ];
+  let t = 0;
+  function loop() {
+    if (!musicPlaying) return;
+    melody.forEach(([freq, dur]) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const startT = audioCtx.currentTime + t;
+      gain.gain.setValueAtTime(0, startT);
+      gain.gain.linearRampToValueAtTime(0.08, startT + 0.02);
+      gain.gain.linearRampToValueAtTime(0, startT + dur);
+      osc.connect(gain);
+      gain.connect(musicGain);
+      osc.start(startT);
+      osc.stop(startT + dur);
+      t += dur;
+    });
+    setTimeout(loop, t * 1000);
+  }
+  loop();
+}
+
+function toggleMusic() {
+  if (!audioCtx) return;
+  musicMuted = !musicMuted;
+  musicGain.gain.value = musicMuted ? 0 : 0.08;
+}
+
+// ============ GAME DATA ============
+const questions = [
+  { q: "Kepanjangan dari LAN adalah...", opts: ["Local Area Network", "Large Area Network", "Long Access Network", "Local Access Node"], correct: 0 },
+  { q: "Protokol yang digunakan untuk transfer file adalah...", opts: ["HTTP", "FTP", "SMTP", "SNMP"], correct: 1 },
+  { q: "Pada model OSI, routing dilakukan di layer...", opts: ["Data Link", "Transport", "Network", "Session"], correct: 2 },
+  { q: "Berapa bit panjang alamat IPv4?", opts: ["16 bit", "32 bit", "64 bit", "128 bit"], correct: 1 },
+  { q: "Kabel jaringan yang paling umum digunakan adalah...", opts: ["Coaxial", "Fiber Optic", "UTP", "Shielded Twisted"], correct: 2 },
+  { q: "Perangkat untuk menghubungkan dua jaringan berbeda adalah...", opts: ["Hub", "Switch", "Router", "Repeater"], correct: 2 },
+  { q: "MAC address terdiri dari berapa digit heksadesimal?", opts: ["6", "8", "10", "12"], correct: 3 },
+  { q: "Topologi jaringan dengan hub di tengah disebut...", opts: ["Bus", "Ring", "Star", "Mesh"], correct: 2 },
+  { q: "Subnet mask default untuk kelas C adalah...", opts: ["255.0.0.0", "255.255.0.0", "255.255.255.0", "255.255.255.255"], correct: 2 },
+  { q: "Perintah untuk menguji koneksi jaringan adalah...", opts: ["ipconfig", "ping", "tracert", "netstat"], correct: 1 }
+];
+
+// ============ MAZE LAYOUT ============
+const COLS = 20, ROWS = 15, CELL = 40;
+// 0 = jalan, 1 = dinding
+const maze = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,0,1,0,1,1,1,1,1,1,1,1,0,1,0,1,0,1],
+  [1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,1],
+  [1,0,1,1,1,1,1,1,0,1,1,0,1,1,1,1,0,1,0,1],
+  [1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0,1],
+  [1,1,1,1,1,1,0,1,0,1,0,1,1,1,0,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+  [1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1],
+  [1,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1],
+  [1,0,1,0,1,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1],
+  [1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,1,1,0,1,1,1,1,1,1,1,1,0,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+// 4 area jawaban di 4 pojok area terbuka
+const answerAreas = [
+  { x: 1, y: 1, w: 3, h: 2, idx: 0, color: '#ff4757' },   // kiri-atas
+  { x: 16, y: 1, w: 3, h: 2, idx: 1, color: '#2ed573' },  // kanan-atas
+  { x: 1, y: 12, w: 3, h: 2, idx: 2, color: '#ffa502' },  // kiri-bawah
+  { x: 16, y: 12, w: 3, h: 2, idx: 3, color: '#1e90ff' }  // kanan-bawah
+];
+
+// ============ GAME STATE ============
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let player = { x: 9*CELL+CELL/2, y: 7*CELL+CELL/2, r: 12, speed: 3 };
+let monsters = [];
+let currentQ = 0;
+let lives = 3;
+let score = 0;
+let keys = {};
+let particles = [];
+let statusText = null;
+let statusTimer = 0;
+let gameState = 'menu'; // menu, playing, paused, gameover, win
+let invuln = 0;
+let lockedAreas = new Set();
+let safeArea = -1;
+
+function initMonsters() {
+  monsters = [];
+  const positions = [[5,5],[14,5],[5,9],[14,9],[10,3],[10,11]];
+  positions.forEach(p => {
+    monsters.push({
+      x: p[0]*CELL + CELL/2,
+      y: p[1]*CELL + CELL/2,
+      r: 14,
+      speed: 1.2 + Math.random()*0.5,
+      dx: (Math.random()<0.5?-1:1),
+      dy: (Math.random()<0.5?-1:1),
+      changeTimer: 0
+    });
+  });
+}
+
+function startGame() {
+  initAudio();
+  document.getElementById('overlay').classList.add('hidden');
+  currentQ = 0;
+  lives = 3;
+  score = 0;
+  lockedAreas = new Set();
+  safeArea = -1;
+  particles = [];
+  resetPlayer();
+  initMonsters();
+  updateHUD();
+  loadQuestion();
+  gameState = 'playing';
+  startMusic();
+  requestAnimationFrame(loop);
+}
+
+function resetPlayer() {
+  player.x = 9*CELL + CELL/2;
+  player.y = 7*CELL + CELL/2;
+  invuln = 60;
+}
+
+function loadQuestion() {
+  if (currentQ >= questions.length) {
+    endGame(true);
+    return;
+  }
+  const q = questions[currentQ];
+  document.getElementById('question-box').innerHTML = 
+    `<b>Soal ${currentQ+1}:</b> ${q.q}`;
+  lockedAreas = new Set();
+  safeArea = -1;
+}
+
+function updateHUD() {
+  document.getElementById('qnum').textContent = currentQ+1;
+  document.getElementById('lives').textContent = '❤️'.repeat(lives) || '💀';
+  document.getElementById('score').textContent = score;
+}
+
+// ============ INPUT ============
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === 'p' && gameState === 'playing') {
+    gameState = 'paused';
+    showOverlay('PAUSE', 'Tekan P untuk lanjut', 'LANJUT', ()=>{ gameState='playing'; document.getElementById('overlay').classList.add('hidden'); });
+  }
+  if (e.key.toLowerCase() === 'm') toggleMusic();
+});
+document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+function showOverlay(title, text, btnText, onClick) {
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = `<h2>${title}</h2><p>${text}</p><button>${btnText}</button>`;
+  ov.classList.remove('hidden');
+  ov.querySelector('button').onclick = onClick;
+}
+
+function endGame(win) {
+  gameState = win ? 'win' : 'gameover';
+  musicPlaying = false;
+  if (win) {
+    sfxWin();
+    showOverlay('🏆 SELAMAT!', `Kamu berhasil menjawab semua soal TKJ!<br>Skor akhir: <b>${score}</b>`, 'MAIN LAGI', startGame);
+  } else {
+    showOverlay('💀 GAME OVER', `Nyawa habis!<br>Skor: <b>${score}</b>`, 'COBA LAGI', startGame);
+  }
+}
+
+// ============ COLLISION ============
+function isWall(px, py) {
+  const col = Math.floor(px/CELL);
+  const row = Math.floor(py/CELL);
+  if (col<0||col>=COLS||row<0||row>=ROWS) return true;
+  return maze[row][col] === 1;
+}
+
+function canMoveTo(x, y, r) {
+  return !isWall(x-r, y-r) && !isWall(x+r, y-r) && !isWall(x-r, y+r) && !isWall(x+r, y+r);
+}
+
+function getAreaAt(x, y) {
+  for (const a of answerAreas) {
+    const ax = a.x*CELL, ay = a.y*CELL;
+    const aw = a.w*CELL, ah = a.h*CELL;
+    if (x >= ax && x <= ax+aw && y >= ay && y <= ay+ah) return a;
+  }
+  return null;
+}
+
+// ============ PARTICLES ============
+function spawnFireworks(x, y) {
+  for (let i=0; i<60; i++) {
+    const angle = Math.random()*Math.PI*2;
+    const speed = 2 + Math.random()*4;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed,
+      life: 60,
+      maxLife: 60,
+      color: `hsl(${Math.random()*360}, 100%, 60%)`,
+      type: 'firework'
+    });
+  }
+}
+
+function spawnBomb(x, y) {
+  for (let i=0; i<40; i++) {
+    const angle = Math.random()*Math.PI*2;
+    const speed = 1 + Math.random()*3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed,
+      life: 40,
+      maxLife: 40,
+      color: `hsl(${Math.random()*30}, 100%, ${40+Math.random()*20}%)`,
+      type: 'bomb'
+    });
+  }
+}
+
+function spawnCheck(x, y) {
+  statusText = { type: 'check', x, y, life: 60 };
+}
+function spawnX(x, y) {
+  statusText = { type: 'x', x, y, life: 60 };
+}
+
+// ============ UPDATE ============
+function update() {
+  if (gameState !== 'playing') return;
+
+  // Player movement
+  let dx = 0, dy = 0;
+  if (keys['arrowup'] || keys['w']) dy -= 1;
+  if (keys['arrowdown'] || keys['s']) dy += 1;
+  if (keys['arrowleft'] || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+  const nx = player.x + dx*player.speed;
+  const ny = player.y + dy*player.speed;
+  if (canMoveTo(nx, player.y, player.r)) player.x = nx;
+  if (canMoveTo(player.x, ny, player.r)) player.y = ny;
+
+  // Monsters
+  monsters.forEach(m => {
+    m.changeTimer--;
+    if (m.changeTimer <= 0) {
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      const d = dirs[Math.floor(Math.random()*4)];
+      m.dx = d[0]; m.dy = d[1];
+      m.changeTimer = 30 + Math.floor(Math.random()*60);
+    }
+    const nx = m.x + m.dx*m.speed;
+    const ny = m.y + m.dy*m.speed;
+    if (canMoveTo(nx, m.y, m.r)) m.x = nx; else m.dx *= -1;
+    if (canMoveTo(m.x, ny, m.r)) m.y = ny; else m.dy *= -1;
+  });
+
+  // Collision player-monster
+  if (invuln > 0) invuln--;
+  monsters.forEach(m => {
+    const d = Math.hypot(m.x-player.x, m.y-player.y);
+    if (d < m.r + player.r && invuln === 0) {
+      lives--;
+      sfxHit();
+      spawnBomb(player.x, player.y);
+      invuln = 90;
+      resetPlayer();
+      updateHUD();
+      if (lives <= 0) endGame(false);
+    }
+  });
+
+  // Check answer area
+  const area = getAreaAt(player.x, player.y);
+  if (area && !lockedAreas.has(area.idx) && safeArea !== area.idx) {
+    const q = questions[currentQ];
+    if (area.idx === q.correct) {
+      // Correct!
+      safeArea = area.idx;
+      score += 100;
+      sfxCorrect();
+      spawnFireworks(area.x*CELL + area.w*CELL/2, area.y*CELL + area.h*CELL/2);
+      spawnCheck(area.x*CELL + area.w*CELL/2, area.y*CELL + area.h*CELL/2);
+      updateHUD();
+      setTimeout(() => {
+        currentQ++;
+        if (currentQ >= questions.length) endGame(true);
+        else loadQuestion();
+        resetPlayer();
+      }, 1500);
+    } else {
+      // Wrong
+      lockedAreas.add(area.idx);
+      sfxWrong();
+      spawnBomb(area.x*CELL + area.w*CELL/2, area.y*CELL + area.h*CELL/2);
+      spawnX(area.x*CELL + area.w*CELL/2, area.y*CELL + area.h*CELL/2);
+      // Teleport player out of wrong area
+      player.x = 9*CELL + CELL/2;
+      player.y = 7*CELL + CELL/2;
+    }
+  }
+
+  // Particles
+  particles = particles.filter(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;
+    p.vx *= 0.98;
+    p.life--;
+    return p.life > 0;
+  });
+
+  if (statusText) {
+    statusText.life--;
+    if (statusText.life <= 0) statusText = null;
+  }
+}
+
+// ============ RENDER ============
+function drawMaze() {
+  for (let r=0; r<ROWS; r++) {
+    for (let c=0; c<COLS; c++) {
+      if (maze[r][c] === 1) {
+        const grad = ctx.createLinearGradient(c*CELL, r*CELL, c*CELL+CELL, r*CELL+CELL);
+        grad.addColorStop(0, '#2a2a4a');
+        grad.addColorStop(1, '#1a1a2e');
+        ctx.fillStyle = grad;
+        ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+        ctx.strokeStyle = '#00d9ff33';
+        ctx.strokeRect(c*CELL, r*CELL, CELL, CELL);
+      } else {
+        ctx.fillStyle = '#0a0a15';
+        ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+      }
+    }
+  }
+}
+
+function drawAnswerAreas() {
+  const q = questions[currentQ];
+  answerAreas.forEach(a => {
+    const x = a.x*CELL, y = a.y*CELL;
+    const w = a.w*CELL, h = a.h*CELL;
+    let alpha = 0.5;
+    let borderColor = a.color;
+    let label = String.fromCharCode(65 + a.idx);
+    let text = q.opts[a.idx];
+    
+    if (lockedAreas.has(a.idx)) {
+      alpha = 0.2;
+      borderColor = '#555';
+    } else if (safeArea === a.idx) {
+      alpha = 0.9;
+      borderColor = '#00ff88';
+    }
+    
+    ctx.fillStyle = a.color + Math.floor(alpha*255).toString(16).padStart(2,'0');
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x+2, y+2, w-4, h-4);
+    ctx.lineWidth = 1;
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x+w/2, y+30);
+    ctx.font = '12px Segoe UI';
+    // Wrap text
+    const words = text.split(' ');
+    let line = '', ly = y+55;
+    words.forEach(word => {
+      const test = line + word + ' ';
+      if (ctx.measureText(test).width > w-10) {
+        ctx.fillText(line, x+w/2, ly);
+        line = word + ' ';
+        ly += 14;
+      } else line = test;
+    });
+    ctx.fillText(line, x+w/2, ly);
+  });
+}
+
+function drawPlayer() {
+  const flicker = invuln > 0 && Math.floor(invuln/5)%2 === 0;
+  if (flicker) return;
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  // Glow
+  const grad = ctx.createRadialGradient(0,0,2,0,0,20);
+  grad.addColorStop(0, '#00d9ff');
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(-20,-20,40,40);
+  // Body
+  ctx.fillStyle = '#00d9ff';
+  ctx.beginPath();
+  ctx.arc(0, 0, player.r, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Eyes
+  ctx.fillStyle = '#0a0a15';
+  ctx.beginPath(); ctx.arc(-4, -2, 2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(4, -2, 2, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawMonsters() {
+  monsters.forEach(m => {
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    // Glow
+    const grad = ctx.createRadialGradient(0,0,2,0,0,25);
+    grad.addColorStop(0, '#ff0066');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-25,-25,50,50);
+    // Body (ghost shape)
+    ctx.fillStyle = '#ff0066';
+    ctx.beginPath();
+    ctx.arc(0, -2, m.r, Math.PI, 0);
+    ctx.lineTo(m.r, m.r-2);
+    for (let i=0; i<4; i++) {
+      const x1 = m.r - i*(m.r*2/4);
+      const x2 = m.r - (i+1)*(m.r*2/4);
+      ctx.quadraticCurveTo((x1+x2)/2, m.r+4, x2, m.r-2);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-5, -4, 3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5, -4, 3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(-5, -4, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5, -4, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    const alpha = p.life / p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawStatus() {
+  if (!statusText) return;
+  const alpha = statusText.life / 60;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(statusText.x, statusText.y);
+  const scale = 1 + (1-alpha)*0.5;
+  ctx.scale(scale, scale);
+  if (statusText.type === 'check') {
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-20, 0);
+    ctx.lineTo(-5, 15);
+    ctx.lineTo(25, -20);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#ff0044';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-20, -20); ctx.lineTo(20, 20);
+    ctx.moveTo(20, -20); ctx.lineTo(-20, 20);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawMaze();
+  drawAnswerAreas();
+  drawMonsters();
+  drawPlayer();
+  drawParticles();
+  drawStatus();
+}
+
+function loop() {
+  update();
+  render();
+  if (gameState !== 'menu') requestAnimationFrame(loop);
+}
+
+// Initial render
+render();
+</script>
+</body>
+</html>
